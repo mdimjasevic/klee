@@ -26,8 +26,16 @@ namespace klee {
   namespace firehose {
 
     template <typename T> std::string NumberToString(T Number);
-    // Dummy string value used for default reference parameter values
-    static const std::string dummyString("");
+
+    class Info;
+    static Info& dummyInfo() __attribute__ ((unused));
+
+    class Failure;
+    static Failure& dummyFailure() __attribute__ ((unused));
+
+    class Analysis;
+    static Analysis& dummyAnalysis() __attribute__ ((unused));
+
 
     class XML {
     protected:
@@ -52,7 +60,10 @@ namespace klee {
     };
 
     // Dummy point value
-    static const Point dummyPoint = Point(0, 0);
+    static Point& dummyPoint() {
+      static Point dummy(0, 0);
+      return dummy;
+    }
 
     
     class Range: public XML {
@@ -68,9 +79,12 @@ namespace klee {
     };
 
     // Dummy range value
-    static const Range dummyRange = Range(dummyPoint, dummyPoint);
+    static Range& dummyRange() {
+      static Range dummy(dummyPoint(), dummyPoint());
+      return dummy;
+    }
 
-    
+
     class File: public XML {
     private:
       std::string m_path;
@@ -84,7 +98,10 @@ namespace klee {
     };
 
     // Dummy file value
-    static const File dummyFile(dummyString);
+    static File& dummyFile() {
+      static File dummy("");
+      return dummy;
+    }
 
     
     class Function: public XML {
@@ -100,7 +117,10 @@ namespace klee {
     };
 
     // Dummy function value
-    static const Function dummyFunction(dummyString);
+    static Function& dummyFunction() {
+      static Function dummy("");
+      return dummy;
+    }
     
 
     class Location: public XML {
@@ -111,7 +131,7 @@ namespace klee {
       Point m_point;
     public:
       Location(const File& file, const Function& function,
-	       const Range& range = dummyRange);
+	       const Range& range = dummyRange());
       Location(const File& file, const Function& function, const Point& point);
       Location(const Location& that);
       const File& getFile() const;
@@ -123,22 +143,72 @@ namespace klee {
     };
 
     //Dummy location value
-    static const Location dummyLocation(dummyFile, dummyFunction, dummyRange);
+    static Location& dummyLocation() {
+      static Location dummy(dummyFile(), dummyFunction(), dummyRange());
+      return dummy;
+    }
 
+
+    // An abstract class that is inherited by Message and Notes
+    class Text: public XML {
+    private:
+      std::string m_text;
+    public:
+      Text(const std::string& text);
+      Text(const char* text);
+      const std::string& get() const;
+    };
+
+    class Message: public Text {
+    public:
+      Message(const std::string& msg);
+      Message(const char* msg);
+      Message(const Message& that);
+      bool operator ==(const Message& that) const;
+      const std::string toXML() const;
+    };
+
+    // Dummy message value
+    static Message& dummyMessage() {
+      static Message dummy(std::string(""));
+      return dummy;
+    }
+
+
+    class Notes: public Text {
+    public:
+      Notes(const std::string& notes);
+      Notes(const char* notes);
+      Notes(const Notes& that);
+      bool operator ==(const Notes& that) const;
+      const std::string toXML() const;
+    };
     
+    // Dummy notes value
+    static Notes& dummyNotes() {
+      static Notes dummy(std::string(""));
+      return dummy;
+    }
+
+
     class State: public XML {
     private:
       Location m_location;
+      Notes m_notes;
     public:
-      State(const Location& location);
+      State(const Location& location, const Notes& notes = dummyNotes());
       State(const State& that);
       const Location& getLocation() const;
+      const Notes& getNotes() const;
       bool operator ==(const State& that) const;
       const std::string toXML() const;
     };
 
     // Dummy location value
-    static const State dummyState(dummyLocation);
+    static State& dummyState() {
+      static State dummy(dummyLocation(), dummyNotes());
+      return dummy;
+    }
     
 
     class Trace: public XML {
@@ -153,33 +223,26 @@ namespace klee {
     };
 
     // Dummy trace value
-    static const Trace dummyTrace(std::vector<State>(1, dummyState));
+    static Trace& dummyTrace() {
+      static Trace dummy(std::vector<State>(1, dummyState()));
+      return dummy;
+    }
 
-    
-    class Message: public XML {
-    private:
-      std::string m_msg;
+
+    class ResultType: public XML {
     public:
-      Message(const std::string& msg);
-      Message(const char* msg);
-      Message(const Message& that);
-      const std::string& get() const;
-      bool operator ==(const Message& that) const;
-      const std::string toXML() const;
+      ResultType() {}
     };
 
-    // Dummy message value
-    static const Message dummyMessage(dummyString);
-
     
-    class Issue: public XML {
+    class Issue: public ResultType {
     private:
       Message m_message;
       Location m_location;
       Trace m_trace;
     public:
       Issue(const Message& message, const Location& location,
-	    const Trace& trace = dummyTrace);
+	    const Trace& trace = dummyTrace());
       Issue(const Issue& that);
       const Message& getMessage() const;
       const Location& getLocation() const;
@@ -189,21 +252,88 @@ namespace klee {
     };
 
     // Dummy issue value
-    static const Issue dummyIssue(dummyMessage, dummyLocation, dummyTrace);
+    static Issue& dummyIssue() {
+      static Issue dummy(dummyMessage(), dummyLocation(), dummyTrace());
+      return dummy;
+    }
+
+
+    // Dimjašević: This is not a good design, but I do not want to
+    // deal with object slicing, pointers, and exceptions.
+    class FailureOrInfo: public ResultType {
+    protected:
+      std::string m_id;
+      Message m_message;
+      Location m_location;
+    public:
+      FailureOrInfo(const std::string& id,
+		    const Message& message,
+		    const Location& location = dummyLocation());
+      const std::string& getId() const;
+      const Message& getMessage() const;
+    };
+
+
+    class Failure: public FailureOrInfo {
+    public:
+      // the only two values one should pass in for 'id' are
+      // "symbol-loading" and "external-call"
+      Failure(const std::string& id, const Message& message,
+	      const Location& location = dummyLocation());
+      Failure(const Failure& that);
+      const Location& getLocation() const;
+      bool operator==(const Failure& that) const;
+      const std::string toXML() const;
+    };
+
+    // Dummy failure value
+    static Failure& dummyFailure() {
+      static Failure dummy(std::string(""), dummyMessage(), dummyLocation());
+      return dummy;
+    }
+
+
+    class Info: public FailureOrInfo {
+    public:
+      Info(const std::string& id, const Message& message);
+      Info(const Info& that);
+      bool operator==(const Info& that) const;
+      const std::string toXML() const;
+    };
+
+    // Dummy info value
+    static Info& dummyInfo() {
+      static Info dummy(std::string(""), dummyMessage());
+      return dummy;
+    }
     
 
     class Results: public XML {
     private:
       std::vector<Issue> m_issues;
+      std::vector<Failure> m_failures;
+      std::vector<Info> m_infos;
     public:
-      Results(const std::vector<Issue>& issues);
+      Results();
+      Results(const std::vector<Issue>& issues,
+              const std::vector<Failure>& failures =
+              std::vector<Failure>(),
+              const std::vector<Info>& infos =
+              std::vector<Info>());
+      Results(const std::vector<Failure>& failures);
+      Results(const std::vector<Info>& infos);
       Results(const Results& that);
       const std::vector<Issue>& getIssues() const;
+      const std::vector<Failure>& getFailures() const;
+      const std::vector<Info>& getInfos() const;
       bool operator ==(const Results& that) const;
       const std::string toXML() const;
     };
 
-    static const Results dummyResults(std::vector<Issue>(1, dummyIssue));
+    static Results& dummyResults() {
+      static Results dummy(std::vector<Issue>(1, dummyIssue()));
+      return dummy;
+    }
     
 
     class Generator: public XML {
@@ -220,31 +350,28 @@ namespace klee {
     };
 
     // Dummy generator value
-    static const Generator dummyGenerator(dummyString, dummyString);
-
-
-    class SUT: public XML {
-      // TODO: implement this class and add it to as a member of the
-      // Metadata class
-    };
+    static Generator& dummyGenerator() {
+      static Generator dummy(std::string(""), std::string(""));
+      return dummy;
+    }
 
 
     class Metadata: public XML {
     private:
       Generator m_generator;
-      // SUT m_sut;
     public:
       Metadata(const Generator& generator);
-      // Metadata(const Generator& generator, const SUT& sut);
       Metadata(const Metadata& that);
       const Generator& getGenerator() const;
-      // const SUT& getSUT() const;
       bool operator ==(const Metadata& that) const;
       const std::string toXML() const;
     };
 
     // Dummy metadata value
-    static const Metadata dummyMetadata(dummyGenerator);
+    static Metadata& dummyMetadata() {
+      static Metadata dummy(dummyGenerator());
+      return dummy;
+    }
 
     
     class Analysis: public XML {
@@ -261,7 +388,10 @@ namespace klee {
     };
 
     // Dummy analysis value
-    static const Analysis dummyAnalysis(dummyMetadata, dummyResults);
+    static Analysis& dummyAnalysis() {
+      static Analysis dummy(dummyMetadata(), dummyResults());
+      return dummy;
+    }
   }
 }
 
