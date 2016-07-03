@@ -11,6 +11,7 @@
 
 #include "klee/ExecutionState.h"
 #include "klee/Expr.h"
+#include "klee/Firehose.h"
 #include "klee/Interpreter.h"
 #include "klee/Statistics.h"
 #include "klee/Config/Version.h"
@@ -64,6 +65,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <cctype>
 #include <cerrno>
 #include <fstream>
 #include <iomanip>
@@ -96,6 +98,10 @@ namespace {
   cl::opt<bool>
   NoOutput("no-output",
            cl::desc("Don't generate test files"));
+
+  cl::opt<bool>
+  FirehoseOutput("firehose-output",
+                 cl::desc("Output results in the Firehose format"));
 
   cl::opt<bool>
   WarnAllExternals("warn-all-externals",
@@ -241,6 +247,11 @@ private:
   int m_argc;
   char **m_argv;
 
+  const std::pair<bool, std::string>
+    programArgumentsToString(bool success,
+                             const std::vector< std::pair<std::string,
+                             std::vector<unsigned char> > >& args) const;
+
 public:
   KleeHandler(int argc, char **argv);
   ~KleeHandler();
@@ -346,6 +357,21 @@ KleeHandler::KleeHandler(int argc, char **argv)
   if ((klee_message_file = fopen(file_path.c_str(), "w")) == NULL)
     klee_error("cannot open file \"%s\": %s", file_path.c_str(), strerror(errno));
 
+  if (FirehoseOutput) {
+    // open firehose.xml
+    std::string firehose_file_path = getOutputFilename("firehose.xml");
+    if ((klee_firehose_file = fopen(firehose_file_path.c_str(), "w")) == NULL)
+      klee_error("cannot open file \"%s\": %s", firehose_file_path.c_str(),
+                 strerror(errno));
+    // write opening tags for top-level XML elements
+    fprintf(klee_firehose_file, "<analysis>\n");
+    fprintf(klee_firehose_file, "<metadata>\n");
+    fprintf(klee_firehose_file, "<generator name=\"%s\" version=\"%s\"/>\n",
+            PACKAGE_NAME, PACKAGE_VERSION);
+    fprintf(klee_firehose_file, "</metadata>\n");
+    fprintf(klee_firehose_file, "<results>\n");
+  }
+
   // open info
   m_infoFile = openOutputFile("info");
 }
@@ -355,7 +381,58 @@ KleeHandler::~KleeHandler() {
   if (m_symPathWriter) delete m_symPathWriter;
   fclose(klee_warning_file);
   fclose(klee_message_file);
+  if (klee_firehose_file) {
+    // write closing tags and close the file
+    fprintf(klee_firehose_file, "</results>\n");
+    fprintf(klee_firehose_file, "</analysis>\n");
+    fclose(klee_firehose_file);
+  }
   delete m_infoFile;
+}
+
+const std::pair<bool, std::string>
+  KleeHandler::programArgumentsToString(bool success,
+                                        const std::vector< std::pair<
+                                        std::string,
+                                        std::vector<unsigned char> > >& args)
+  const {
+
+  if (!success) return std::make_pair(false, "");
+
+  return std::make_pair(true, "TODO");
+
+  // TODO: Fix the implementation below as it is not working when one
+  // single symbolic argument is present. Also, see how it would
+  // behave when there are multiple arguments (both concrete and
+  // symbolic)
+
+  std::ostringstream ss;
+
+  for (unsigned i = 0; i < args.size(); ++i) {
+    char value[1024];
+    // std::string value;
+    strcpy(value, "");
+    if (i > 0) ss << " ";
+    fprintf(stderr, "args[%d].first == %s\n", i, args[i].first.c_str());
+    if (args[i].first == "model_version")
+      strcpy(value, m_argv[i + 1]);
+      // value = std::string(m_argv[i + 1]);
+    else {
+      // value = std::string(args[i].second.begin(), args[i].second.end());
+      for (unsigned j = 0; j < args[i].second.size(); ++j)
+	value[j] = args[i].second[j];
+      value[args[i].second.size()] = '\0';
+    }
+    // for (unsigned j = 0; j < value.length(); ++j) {
+    for (unsigned j = 0; j < strlen(value); ++j) {
+      if (!value[j]) continue;
+      fprintf(stderr, "%d-th char = %d\n", j, value[j]);
+      if (!isprint(value[j])) return std::make_pair(false, "");
+    }
+    ss << value;
+  }
+
+  return std::make_pair(true, ss.str());
 }
 
 void KleeHandler::setInterpreter(Interpreter *i) {
@@ -466,6 +543,42 @@ void KleeHandler::processTestCase(const ExecutionState &state,
       llvm::raw_ostream *f = openTestFile(errorSuffix, id);
       *f << errorMessage;
       delete f;
+    }
+
+    if (FirehoseOutput && errorMessage) {
+      char errorType[256];
+      std::istringstream iss(errorMessage);
+      iss.getline(errorType, 256);
+
+      std::ostringstream msgSs;
+      msgSs << errorType;
+      std::pair<bool, std::string> posixProgArgs;
+      posixProgArgs = programArgumentsToString(success, out);
+
+      if (success) {
+        if (posixProgArgs.first) {
+          msgSs << ".\n The error occurs when " << m_argv[0]
+                << " is executed with ";
+          if (posixProgArgs.second == "")
+            msgSs << "no argument.";
+          else
+            msgSs << "the following arguments: " << posixProgArgs.second;
+        }
+        else
+          msgSs << ".\n The arguments to " << m_argv[0] << " that lead "
+                << "to the error are not printable. Replay a test case "
+                << "that leads to the error by using the klee-replay "
+                << "tool on the corresponding .ktest file from the output "
+                << "directory.";
+      }
+
+      firehose::Message msg(msgSs.str());
+      firehose::Trace trace(state.dumpStackInFirehose());
+      assert(trace.getStates().size() > 0);
+      firehose::Location loc((*(trace.getStates().rbegin())).getLocation());
+      firehose::Issue issue(msg, loc, trace);
+      fprintf(klee_firehose_file, "%s\n", issue.toXML().c_str());
+      fflush(klee_firehose_file);
     }
 
     if (m_pathWriter) {

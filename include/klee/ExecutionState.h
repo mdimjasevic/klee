@@ -12,6 +12,7 @@
 
 #include "klee/Constraints.h"
 #include "klee/Expr.h"
+#include "klee/Firehose.h"
 #include "klee/Internal/ADT/TreeStream.h"
 
 // FIXME: We do not want to be exposing these? :(
@@ -72,6 +73,7 @@ private:
 
   std::map<std::string, std::string> fnAliases;
 
+  const std::string functionArgumentsToString(const StackFrame& sf) const;
 public:
   // Execution - Control Flow specific
 
@@ -169,6 +171,7 @@ public:
 
   bool merge(const ExecutionState &b);
   void dumpStack(llvm::raw_ostream &out) const;
+  const firehose::Trace dumpStackInFirehose() const;
 };
 }
 
