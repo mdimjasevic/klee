@@ -136,7 +136,7 @@ namespace {
 
 
   enum LibcType {
-    NoLibc, KleeLibc, UcLibc
+    NoLibc, KleeLibc, UcLibc, Musl
   };
 
   cl::opt<LibcType>
@@ -145,6 +145,7 @@ namespace {
        cl::values(clEnumValN(NoLibc, "none", "Don't link in a libc"),
                   clEnumValN(KleeLibc, "klee", "Link in klee libc"),
 		  clEnumValN(UcLibc, "uclibc", "Link in uclibc (adapted for klee)"),
+		  clEnumValN(Musl, "musl", "Link in Musl"),
 		  clEnumValEnd),
        cl::init(NoLibc));
 
@@ -879,6 +880,8 @@ void externalsAndGlobalsCheck(const Module *m) {
     dontCare.insert(dontCareUclibc,
                     dontCareUclibc+NELEMS(dontCareUclibc));
     break;
+  case Musl:
+    break; /* At the moment nothing to be done here */
   case NoLibc: /* silence compiler warning */
     break;
   }
@@ -1009,11 +1012,6 @@ static char *format_tdiff(char *buf, long seconds)
   return buf;
 }
 
-#ifndef SUPPORT_KLEE_UCLIBC
-static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
-  klee_error("invalid libc, no uclibc support!\n");
-}
-#else
 static void replaceOrRenameFunction(llvm::Module *module,
 		const char *old_name, const char *new_name)
 {
@@ -1030,6 +1028,12 @@ static void replaceOrRenameFunction(llvm::Module *module,
     }
   }
 }
+
+#ifndef SUPPORT_KLEE_UCLIBC
+static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
+  klee_error("invalid libc, no uclibc support!\n");
+}
+#else
 static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) {
   // Ensure that klee-uclibc exists
   SmallString<128> uclibcBCA(libDir);
@@ -1153,6 +1157,77 @@ static llvm::Module *linkWithUclibc(llvm::Module *mainModule, StringRef libDir) 
   new UnreachableInst(getGlobalContext(), bb);
 
   klee_message("NOTE: Using klee-uclibc : %s", uclibcBCA.c_str());
+  return mainModule;
+}
+#endif
+
+#ifndef SUPPORT_MUSL
+static llvm::Module *linkWithMusl(llvm::Module *mainModule, StringRef libDir) {
+  klee_error("invalid libc, no musl support!\n");
+}
+#else
+static llvm::Module *linkWithMusl(llvm::Module *mainModule, StringRef libDir) {
+  // Ensure that musl exists
+  SmallString<128> muslBCA(libDir);
+  llvm::sys::path::append(muslBCA, MUSL_BCA_NAME);
+
+  bool muslExists=false;
+  llvm::sys::fs::exists(muslBCA.c_str(), muslExists);
+  if (!muslExists)
+    klee_error("Cannot find musl : %s", muslBCA.c_str());
+
+  Function *f;
+  // force import of __libc_start_main
+  mainModule->getOrInsertFunction("__libc_start_main",
+                                  FunctionType::get(Type::getInt32Ty(getGlobalContext()),
+                                               std::vector<LLVM_TYPE_Q Type*>(),
+                                                    true));
+
+  f = mainModule->getFunction("__ctype_get_mb_cur_max");
+  if (f) f->setName("_stdlib_mb_cur_max");
+
+  mainModule = klee::linkWithLibrary(mainModule, muslBCA.c_str());
+  assert(mainModule && "unable to link with musl");
+
+  // We now need to swap things so that __libc_start_main is the entry
+  // point, in such a way that the arguments are passed to
+  // __libc_start_main correctly. We do this by renaming the user main
+  // and generating a stub function to call __libc_start_main. There
+  // is also an implicit cooperation in that runFunctionAsMain sets up
+  // the environment arguments to what musl expects (following argv),
+  // since it does not explicitly take an envp argument.
+  Function *userMainFn = mainModule->getFunction(EntryPoint);
+  assert(userMainFn && "unable to get user main");
+  Function *muslMainFn = mainModule->getFunction("__libc_start_main");
+  assert(muslMainFn && "unable to get musl main");
+  userMainFn->setName("__user_main");
+
+  const FunctionType *ft = muslMainFn->getFunctionType();
+  assert(ft->getNumParams() == 3);
+
+  std::vector<LLVM_TYPE_Q Type*> fArgs;
+  fArgs.push_back(ft->getParamType(1)); // argc
+  fArgs.push_back(ft->getParamType(2)); // argv
+  Function *stub = Function::Create(FunctionType::get(Type::getInt32Ty(getGlobalContext()), fArgs, false),
+                                    GlobalVariable::ExternalLinkage,
+                                    EntryPoint,
+                                    mainModule);
+  BasicBlock *bb = BasicBlock::Create(getGlobalContext(), "entry", stub);
+
+  std::vector<llvm::Value*> args;
+  args.push_back(llvm::ConstantExpr::getBitCast(userMainFn,
+                                                ft->getParamType(0)));
+  args.push_back(stub->arg_begin()); // argc
+  args.push_back(++stub->arg_begin()); // argv
+#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 0)
+  CallInst::Create(muslMainFn, args, "", bb);
+#else
+  CallInst::Create(muslMainFn, args.begin(), args.end(), "", bb);
+#endif
+
+  new UnreachableInst(getGlobalContext(), bb);
+
+  klee_message("NOTE: Using musl : %s", muslBCA.c_str());
   return mainModule;
 }
 #endif
@@ -1311,6 +1386,9 @@ int main(int argc, char **argv, char **envp) {
 
   case UcLibc:
     mainModule = linkWithUclibc(mainModule, LibraryDir);
+    break;
+  case Musl:
+    mainModule = linkWithMusl(mainModule, LibraryDir);
     break;
   }
 

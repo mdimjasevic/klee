@@ -79,6 +79,7 @@ lit.site.cfg: lit.site.cfg.in
 	     -e "s#@LLVMCC@#$(KLEE_BITCODE_C_COMPILER) -I$(PROJ_SRC_ROOT)/include#g" \
 	     -e "s#@LLVMCXX@#$(KLEE_BITCODE_CXX_COMPILER) -I$(PROJ_SRC_ROOT)/include#g" \
 	     -e "s#@ENABLE_UCLIBC@#$(ENABLE_UCLIBC)#g" \
+	     -e "s#@ENABLE_MUSL@#$(ENABLE_MUSL)#g" \
 	     -e "s#@ENABLE_POSIX_RUNTIME@#$(ENABLE_POSIX_RUNTIME)#g" \
 	     -e "s#@TARGET_TRIPLE@#$(TARGET_TRIPLE)#g" \
 	     -e "s#@HAVE_SELINUX@#$(HAVE_SELINUX)#g" \

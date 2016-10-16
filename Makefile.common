@@ -61,6 +61,9 @@ endif
 # This is filename that KLEE will look for when trying to load klee-uclibc
 KLEE_UCLIBC_BCA_NAME="klee-uclibc.bca"
 
+# This is filename that KLEE will look for when trying to load musl
+MUSL_BCA_NAME="musl.bca"
+
 ifneq ($(ENABLE_STP),0)
   CXX.Flags += $(STP_CFLAGS)
   CXX.Flags += -DEXT_HASH_MAP
@@ -75,6 +78,10 @@ CXX.Flags += -DKLEE_INSTALL_RUNTIME_DIR=\"$(BYTECODE_DESTINATION)\"
 
 ifeq ($(ENABLE_UCLIBC),1)
 	CXX.Flags += -DKLEE_UCLIBC_BCA_NAME=\"$(KLEE_UCLIBC_BCA_NAME)\"
+endif
+
+ifeq ($(ENABLE_MUSL),1)
+	CXX.Flags += -DMUSL_BCA_NAME=\"$(MUSL_BCA_NAME)\"
 endif
 
 # For metaSMT

@@ -16,6 +16,7 @@ config.llvmgxx = "@LLVMCXX@"
 
 # Features
 config.enable_uclibc = True if @ENABLE_UCLIBC@ == 1 else False
+config.enable_musl = True if @ENABLE_MUSL@ == 1 else False
 config.enable_posix_runtime = True if @ENABLE_POSIX_RUNTIME@ == 1 else False
 config.have_selinux = True if @HAVE_SELINUX@ == 1 else False
 config.enable_stp = True if @ENABLE_STP@ == 1 else False

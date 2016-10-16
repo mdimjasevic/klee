@@ -27,4 +27,8 @@ ifeq ($(ENABLE_UCLIBC),1)
 PARALLEL_DIRS += klee-uclibc
 endif
 
+ifeq ($(ENABLE_MUSL),1)
+PARALLEL_DIRS += musl
+endif
+
 include $(LEVEL)/Makefile.common

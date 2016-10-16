@@ -115,4 +115,7 @@
 /* klee-uclibc is supported */
 #undef SUPPORT_KLEE_UCLIBC
 
+/* musl is supported */
+#undef SUPPORT_MUSL
+
 #endif

@@ -649,6 +649,8 @@ RUNTIME_ENABLE_OPTIMIZED
 ENABLE_POSIX_RUNTIME
 KLEE_UCLIBC_BCA
 ENABLE_UCLIBC
+MUSL_BCA
+ENABLE_MUSL
 KLEE_BITCODE_CXX_COMPILER
 KLEE_BITCODE_C_COMPILER
 clang_cxx
@@ -737,6 +739,7 @@ with_llvmcc
 with_llvmcxx
 enable_timestamp
 with_uclibc
+with_musl
 enable_posix_runtime
 with_runtime
 with_tcmalloc
@@ -1393,7 +1396,9 @@ Optional Packages:
                           (Default: auto-detect). If set, --with-llvmcc= must
                           be set too.
   --with-uclibc           Enable use of the klee uclibc at the given path
-                          (klee-uclibc root directory or libc.a file
+                          (klee-uclibc root directory or libc.a file)
+  --with-musl             Enable use of the musl libc at the given path
+                          (musl root directory or libc.so file)
   --with-runtime          Select build configuration for runtime libraries
                           (default [Release+Asserts])
   --without-tcmalloc      Ignore presence of tcmalloc and disable it
@@ -4065,6 +4070,52 @@ $as_echo "no" >&6; }
 fi
 
 
+# Check whether --with-musl was given.
+if test "${with_musl+set}" = set; then :
+  withval=$with_musl;
+fi
+
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking musl" >&5
+$as_echo_n "checking musl... " >&6; }
+if (test X${with_musl} != X); then
+   if test  -d ${with_musl}; then
+
+            with_musl=`cd $with_musl 2> /dev/null; pwd`
+
+            MUSL_BCA="${with_musl}/lib/libc.so.bc"
+
+      if test ! -e "${MUSL_BCA}"; then
+      as_fn_error $? "Could not find file ${MUSL_BCA}" "$LINENO" 5
+      fi
+   elif test -f ${with_musl}; then
+
+       _md=`dirname ${with_musl}`
+       _md=`cd ${_md}; pwd 2> /dev/null`
+       _mf=`basename ${with_musl}`
+
+       MUSL_BCA="${_md}/${_mf}"
+   else
+       as_fn_error $? "Could not detect musl" "$LINENO" 5
+   fi
+
+
+   { $as_echo "$as_me:${as_lineno-$LINENO}: result: $MUSL_BCA" >&5
+$as_echo "$MUSL_BCA" >&6; }
+   ENABLE_MUSL=1
+
+
+
+$as_echo "#define SUPPORT_MUSL 1" >>confdefs.h
+
+else
+   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+   ENABLE_MUSL=0
+
+fi
+
 
 # Check whether --enable-posix-runtime was given.
 if test "${enable_posix_runtime+set}" = set; then :
@@ -4077,7 +4128,7 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking POSIX runtime" >&5
 $as_echo_n "checking POSIX runtime... " >&6; }
 if test ${enableval} = "default" ; then
-  if test X${with_uclibc} != X; then
+  if test X${with_uclibc} != X || test X${with_musl} != X; then
     enableval=$host_supports_posix_runtime
     if test ${enableval} = "yes"; then
       { $as_echo "$as_me:${as_lineno-$LINENO}: result: default (enabled)" >&5
@@ -4088,8 +4139,8 @@ $as_echo "default (disabled, unsupported target)" >&6; }
     fi
   else
     enableval="no"
-    { $as_echo "$as_me:${as_lineno-$LINENO}: result: default (disabled, no uclibc)" >&5
-$as_echo "default (disabled, no uclibc)" >&6; }
+    { $as_echo "$as_me:${as_lineno-$LINENO}: result: default (disabled, no libc)" >&5
+$as_echo "default (disabled, no libc)" >&6; }
   fi
 else
   if test ${enableval} = "yes" ; then

@@ -445,6 +445,55 @@ else
    AC_SUBST(ENABLE_UCLIBC,[[0]])
 fi
 
+dnl **************************************************************************
+dnl User option to enable Musl support.
+
+AC_ARG_WITH(musl,
+  AS_HELP_STRING([--with-musl],
+                 [Enable use of Musl at the given path (musl root directory or libc.a file]),,)
+
+dnl Validate musl if given.
+
+AC_MSG_CHECKING([musl])
+if (test X${with_musl} != X); then
+   if test  -d ${with_musl}; then
+      dnl Support the legacy way of configuring with musl, i.e. the
+      dnl root musl directory is passed as an argument.
+
+      dnl Make the path absolute
+      with_musl=`cd $with_musl 2> /dev/null; pwd`
+
+      dnl create path to libc file
+      MUSL_BCA="${with_musl}/lib/libc.so.bc"
+
+      if test ! -e "${MUSL_BCA}"; then
+      AC_MSG_ERROR([Could not find file ${MUSL_BCA}])
+      fi
+   elif test -f ${with_musl}; then
+      dnl Support the new way of configuring musl, i.e. the built
+      dnl bitcode archive is passed as the argument.
+
+      dnl Get absolute path to file
+      _md=`dirname ${with_musl}`
+      _md=`cd ${_md}; pwd 2> /dev/null`
+      _mf=`basename ${with_musl}`
+
+      MUSL_BCA="${_md}/${_mf}"
+   else
+      AC_MSG_ERROR([Could not detect musl])
+   fi
+
+   dnl FIXME: Validate the libc.a file
+
+   AC_MSG_RESULT([MUSL_BCA])
+   AC_SUBST(ENABLE_MUSL,[[1]])
+   AC_SUBST(MUSL_BCA)
+   AC_DEFINE(SUPPORT_MUSL, [[1]], [musl is supported])
+else
+   AC_MSG_RESULT([no])
+   AC_SUBST(ENABLE_MUSL,[[0]])
+fi
+
 
 dnl **************************************************************************
 dnl User option to enable the POSIX runtime
@@ -456,7 +505,7 @@ AC_ARG_ENABLE(posix-runtime,
 
 AC_MSG_CHECKING([POSIX runtime])
 if test ${enableval} = "default" ; then
-  if test X${with_uclibc} != X; then
+  if test X${with_uclibc} != X || test X${with_musl} != X; then
     enableval=$host_supports_posix_runtime
     if test ${enableval} = "yes"; then
       AC_MSG_RESULT([default (enabled)])
@@ -465,7 +514,7 @@ if test ${enableval} = "default" ; then
     fi
   else
     enableval="no"
-    AC_MSG_RESULT([default (disabled, no uclibc)])
+    AC_MSG_RESULT([default (disabled, no libc)])
   fi
 else
   if test ${enableval} = "yes" ; then
